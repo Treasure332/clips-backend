@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            Int            @id @default(autoincrement())
+  email         String         @unique
+  password      String?
+  provider      String?
+  providerId    String?
+  name          String?
+  picture       String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  videos        Video[]
+  userPlatforms UserPlatform[]
+  subscriptions Subscription[]
+  wallets       Wallet[]
+  payouts       Payout[]
+
+  @@unique([provider, providerId])
+}
+
+model Video {
+  id               Int      @id @default(autoincrement())
+  userId           Int
+  title            String?
+  description      String?
+  sourceType       String   @default("youtube")
+  sourceUrl        String
+  thumbnail        String?
+  duration         Int?
+  fileSize         BigInt?
+  status           String   @default("pending")
+  processingError  String?
+  processingStats  Json?
+  targetPlatforms  Json?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clips            Clip[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model Clip {
+  id            Int       @id @default(autoincrement())
+  videoId       Int
+  clipUrl       String
+  thumbnail     String?
+  platform      String?
+  title         String?
+  startTime     Float
+  endTime       Float
+  duration      Int
+  viralityScore Float?
+  postStatus    Json?
+  postedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  video         Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  earnings      Earning[]
+
+  @@index([videoId])
+}
+
+model Earning {
+  id        Int      @id @default(autoincrement())
+  clipId    Int
+  amount    Float
+  currency  String   @default("USD")
+  date      DateTime
+  source    String?
+  createdAt DateTime @default(now())
+  clip      Clip     @relation(fields: [clipId], references: [id], onDelete: Cascade)
+}
+
+model UserPlatform {
+  id           Int      @id @default(autoincrement())
+  userId       Int
+  platform     String
+  username     String?
+  accessToken  String?
+  refreshToken String?
+  connectedAt  DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Wallet {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  address     String
+  chain       String   @default("solana")
+  type        String
+  connectedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payouts     Payout[]
+}
+
+model Payout {
+  id            Int       @id @default(autoincrement())
+  userId        Int
+  walletId      Int?
+  amount        Float
+  currency      String    @default("USD")
+  method        String
+  status        String
+  transactionId String?
+  paidAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallet        Wallet?   @relation(fields: [walletId], references: [id])
+}
+
+model Subscription {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  plan      String
+  status    String
+  startDate DateTime
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
