@@ -1,9 +1,18 @@
 import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { Clip, PostStatus } from './clip.entity';
-import { ClipGenerationProcessor, ClipGenerationJob } from './clip-generation.processor';
+import type { Video } from '../videos/video.entity';
+import type { ClipGenerationJob } from './clip-generation.processor';
 import { BulkUpdateClipsDto } from './dto/bulk-update-clips.dto';
-import { ALL_CLIPS_PROCESSED_EVENT, AllClipsProcessedPayload } from './clips.events';
+import {
+  ALL_CLIPS_PROCESSED_EVENT,
+  AllClipsProcessedPayload,
+  CLIP_GENERATION_FAILED_EVENT,
+} from './clips.events';
+import type { ClipGenerationFailedPayload } from './clips.events';
+import { CLIP_GENERATION_QUEUE, CLIP_JOB_OPTIONS } from './clip-generation.queue';
 
 export type ClipSortField = 'viralityScore' | 'createdAt' | 'duration';
 export type SortOrder = 'asc' | 'desc';
@@ -16,32 +25,53 @@ export interface ListClipsOptions {
 
 export interface BulkUpdateResult {
   updatedCount: number;
-  /** Summary of the applied changes */
   updates: { selected?: boolean; postStatus?: unknown };
-  /** IDs that were not found or did not belong to the user */
   notFoundIds: string[];
-  /** True when every clip for the affected video(s) now has postStatus = 'posted' */
   allClipsProcessed: boolean;
 }
 
 @Injectable()
 export class ClipsService {
-  /** In-memory store — replace with Prisma repository when DB is wired up */
+  /** In-memory stores — replace with Prisma repositories when DB is wired up */
   private readonly clips: Clip[] = [];
+  private readonly videos: Map<string, Video> = new Map();
 
   constructor(
-    private readonly processor: ClipGenerationProcessor,
+    @InjectQueue(CLIP_GENERATION_QUEUE)
+    private readonly clipQueue: Queue<ClipGenerationJob>,
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  async generateClip(job: ClipGenerationJob): Promise<Clip> {
-    const clip = await this.processor.process(job);
-    // Initialise new fields
-    (clip as Clip).selected = false;
-    (clip as Clip).postStatus = null;
-    (clip as Clip).updatedAt = clip.createdAt;
-    this.clips.push(clip);
-    return clip;
+  /**
+   * Enqueue a clip-generation job with retry + exponential backoff.
+   *
+   * BullMQ will attempt the job up to 3 times (CLIP_JOB_OPTIONS.attempts)
+   * before moving it to the failed set.
+   *
+   * When Prisma is wired up, also persist a Clip row here with
+   * postStatus='pending' so the UI can show progress immediately.
+   */
+  async enqueueClip(job: ClipGenerationJob): Promise<{ jobId: string | undefined }> {
+    const bullJob = await this.clipQueue.add('generate', job, CLIP_JOB_OPTIONS);
+    return { jobId: bullJob.id };
+  }
+
+  /**
+   * Listener for the terminal clip-generation failure event.
+   *
+   * Sets Video.status = 'failed' and stores the error reason so the
+   * client can surface it. A future email/push notification hook should
+   * also subscribe to CLIP_GENERATION_FAILED_EVENT.
+   */
+  @OnEvent(CLIP_GENERATION_FAILED_EVENT)
+  handleClipGenerationFailed(payload: ClipGenerationFailedPayload): void {
+    const video = this.videos.get(payload.videoId);
+    if (video) {
+      video.status = 'failed';
+      video.processingError = payload.failedReason;
+      video.updatedAt = new Date();
+    }
+    // TODO: trigger user notification (email / push) using payload.videoId + payload.failedReason
   }
 
   /**
@@ -54,20 +84,12 @@ export class ClipsService {
    *       prisma.clip.update({ where: { id }, data: patch })
    *     )
    *   );
-   *
-   * Ownership check: every requested clipId must exist AND belong to userId.
-   * Any ID that fails either check is collected in `notFoundIds` and skipped —
-   * the rest of the batch still succeeds (partial update semantics).
-   *
-   * After the update, if every clip for an affected video has postStatus='posted',
-   * an `clips.allProcessed` event is emitted so the Video record can be updated.
    */
-  async bulkUpdate(
-    userId: string,
-    dto: BulkUpdateClipsDto,
-  ): Promise<BulkUpdateResult> {
+  async bulkUpdate(userId: string, dto: BulkUpdateClipsDto): Promise<BulkUpdateResult> {
     if (dto.selected === undefined && dto.postStatus === undefined) {
-      throw new BadRequestException('At least one of selected or postStatus must be provided');
+      throw new BadRequestException(
+        'At least one of selected or postStatus must be provided',
+      );
     }
 
     // ── Ownership validation ──────────────────────────────────────────────────
@@ -76,12 +98,7 @@ export class ClipsService {
 
     for (const id of dto.clipIds) {
       const clip = this.clips.find((c) => c.id === id);
-      if (!clip) {
-        notFoundIds.push(id);
-        continue;
-      }
-      if (clip.userId !== userId) {
-        // Treat as not-found to avoid leaking existence of other users' clips
+      if (!clip || clip.userId !== userId) {
         notFoundIds.push(id);
         continue;
       }
@@ -94,7 +111,7 @@ export class ClipsService {
       );
     }
 
-    // ── Simulated transaction — atomic in-memory mutation ────────────────────
+    // ── Simulated transaction ─────────────────────────────────────────────────
     const patch: Partial<Pick<Clip, 'selected' | 'postStatus' | 'updatedAt'>> = {
       updatedAt: new Date(),
     };
@@ -106,20 +123,14 @@ export class ClipsService {
     }
 
     // ── Video completion check ────────────────────────────────────────────────
-    // Collect distinct videoIds touched by this update
     const affectedVideoIds = [...new Set(validClips.map((c) => c.videoId))];
     let allClipsProcessed = false;
 
     for (const videoId of affectedVideoIds) {
       const videoClips = this.clips.filter((c) => c.videoId === videoId);
-      const allPosted = videoClips.every((c) => c.postStatus === 'posted');
-
-      if (allPosted) {
+      if (videoClips.every((c) => c.postStatus === 'posted')) {
         allClipsProcessed = true;
-        const payload: AllClipsProcessedPayload = {
-          videoId,
-          clipCount: videoClips.length,
-        };
+        const payload: AllClipsProcessedPayload = { videoId, clipCount: videoClips.length };
         this.eventEmitter.emit(ALL_CLIPS_PROCESSED_EVENT, payload);
       }
     }
@@ -171,8 +182,16 @@ export class ClipsService {
     return this.clips.find((c) => c.id === id);
   }
 
-  /** Exposed for testing — seed clips directly into the store */
+  /** Exposed for testing */
   _seed(clips: Clip[]): void {
     this.clips.push(...clips);
+  }
+
+  _seedVideo(video: Video): void {
+    this.videos.set(video.id, video);
+  }
+
+  _getVideo(id: string): Video | undefined {
+    return this.videos.get(id);
   }
 }

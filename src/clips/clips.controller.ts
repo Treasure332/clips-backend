@@ -19,13 +19,14 @@ export class ClipsController {
 
   /**
    * POST /clips/generate
-   * Trigger clip generation and virality scoring for a video segment.
+   * Enqueue a clip-generation job with automatic retry + exponential backoff.
+   * Returns the BullMQ job ID immediately; processing happens asynchronously.
    *
-   * Body: { videoId, startTime, endTime, positionRatio, transcript? }
+   * Body: { videoId, inputPath, outputPath, startTime, endTime, positionRatio, transcript? }
    */
   @Post('generate')
   generate(@Body() dto: ClipGenerationJob) {
-    return this.clipsService.generateClip(dto);
+    return this.clipsService.enqueueClip(dto);
   }
 
   /**
