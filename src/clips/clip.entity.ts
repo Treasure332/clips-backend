@@ -19,6 +19,14 @@ export interface Clip {
    * Replace with AI-model output once integrated.
    */
   viralityScore: number | null;
+  /** Cloudinary secure URL for the clip video */
+  clipUrl?: string;
+  /** Cloudinary thumbnail URL */
+  thumbnail?: string;
+  /** Clip processing status: 'pending', 'processing', 'success', 'failed' */
+  status?: 'pending' | 'processing' | 'success' | 'failed';
+  /** Error message if upload/processing failed */
+  error?: string;
   /** Whether the user has curated/selected this clip for posting */
   selected: boolean;
   /** Freeform posting status — e.g. 'pending' | 'posted' | 'failed' or platform-specific JSON */

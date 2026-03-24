@@ -1,4 +1,4 @@
-import { Injectable, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
@@ -21,6 +21,7 @@ export interface ListClipsOptions {
   videoId?: string;
   sortBy?: ClipSortField;
   order?: SortOrder;
+  statusFilter?: Clip['status'];
 }
 
 export interface BulkUpdateResult {
@@ -32,6 +33,7 @@ export interface BulkUpdateResult {
 
 @Injectable()
 export class ClipsService {
+  private readonly logger = new Logger(ClipsService.name);
   /** In-memory stores — replace with Prisma repositories when DB is wired up */
   private readonly clips: Clip[] = [];
   private readonly videos: Map<string, Video> = new Map();
@@ -146,12 +148,33 @@ export class ClipsService {
     };
   }
 
+  /**
+   * List clips with optional filtering and sorting.
+   *
+   * sortBy options:
+   *   viralityScore (default) — highest viral potential first
+   *   createdAt               — newest first by default
+   *   duration                — longest first by default
+   *
+   * statusFilter options:
+   *   pending, processing, success, failed
+   */
   listClips(options: ListClipsOptions = {}): Clip[] {
-    const { videoId, sortBy = 'viralityScore', order = 'desc' } = options;
+    const {
+      videoId,
+      sortBy = 'viralityScore',
+      order = 'desc',
+      statusFilter,
+    } = options;
 
-    const result = videoId
+    let result = videoId
       ? this.clips.filter((c) => c.videoId === videoId)
       : [...this.clips];
+
+    // Filter by status if provided
+    if (statusFilter) {
+      result = result.filter((c) => c.status === statusFilter);
+    }
 
     return result.sort((a, b) => {
       let aVal: number;
@@ -178,8 +201,47 @@ export class ClipsService {
     });
   }
 
+  /**
+   * Find clip by ID
+   */
   findById(id: string): Clip | undefined {
     return this.clips.find((c) => c.id === id);
+  }
+
+  /**
+   * Get clips by status (e.g., 'failed' to find clips needing retry)
+   */
+  getClipsByStatus(status: Clip['status']): Clip[] {
+    return this.clips.filter((c) => c.status === status);
+  }
+
+  /**
+   * Mark clip as failed for manual intervention/retry
+   */
+  markClipFailed(id: string, error: string): void {
+    const clip = this.findById(id);
+    if (clip) {
+      clip.status = 'failed';
+      clip.error = error;
+      this.logger.log(`Clip marked as failed: ${id} → ${error}`);
+    }
+  }
+
+  /**
+   * Update clip with Cloudinary URL and thumbnail
+   */
+  updateClipUrls(
+    id: string,
+    clipUrl: string,
+    thumbnail?: string,
+  ): void {
+    const clip = this.findById(id);
+    if (clip) {
+      clip.clipUrl = clipUrl;
+      clip.thumbnail = thumbnail;
+      clip.status = 'success';
+      this.logger.log(`Clip URLs updated: ${id}`);
+    }
   }
 
   /** Exposed for testing */

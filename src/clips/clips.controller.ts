@@ -8,10 +8,11 @@ import {
   NotFoundException,
   Req,
 } from '@nestjs/common';
-import { Request } from 'express';
-import { ClipsService, ClipSortField, SortOrder } from './clips.service';
-import { ClipGenerationJob } from './clip-generation.processor';
-import { BulkUpdateClipsDto } from './dto/bulk-update-clips.dto';
+import type { Request } from 'express';
+import { ClipsService } from './clips.service';
+import type { ClipSortField, SortOrder } from './clips.service';
+import type { ClipGenerationJob } from './clip-generation.processor';
+import type { BulkUpdateClipsDto } from './dto/bulk-update-clips.dto';
 
 @Controller('clips')
 export class ClipsController {
