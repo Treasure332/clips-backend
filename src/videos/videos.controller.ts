@@ -1,3 +1,15 @@
+
+import { Controller, UseGuards, Get } from '@nestjs/common';
+import { LoginGuard } from '../auth/guards/login.guard.js';
+
+@UseGuards(LoginGuard)
+@Controller('videos')
+export class VideosController {
+    @Get()
+    getVideos() {
+        return { message: 'Videos endpoint' };
+    }
+
 import { Controller, Post, Param } from '@nestjs/common';
 import { ClipsService } from '../clips/clips.service';
 
@@ -9,4 +21,5 @@ export class VideosController {
   async cancel(@Param('id') id: string) {
     return this.clipsService.cancelVideo(id);
   }
+
 }

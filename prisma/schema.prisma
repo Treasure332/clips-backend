@@ -38,6 +38,7 @@ model Video {
   fileSize         BigInt?
   status           String   @default("pending")
   processingError  String?
+  // Schema: { momentsFound: number, inputQuality: string, durationSec: number, clipsGenerated: number, timeTakenMs: number, errorDetails?: string }
   processingStats  Json?
   targetPlatforms  Json?
   createdAt        DateTime @default(now())

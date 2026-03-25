@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import ffmpeg from 'fluent-ffmpeg';
 
 type ViralMoment = { start: number; end: number; reason: string };
 
@@ -11,109 +12,161 @@ export class VideoService {
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
 
   async detectViralTimestamps(videoId: number): Promise<ViralMoment[]> {
-    const video = await this.prisma.video.findUnique({ where: { id: videoId } });
-    if (!video) throw new Error(`Video ${videoId} not found`);
+    const startTime = Date.now();
+    let durationSec = 0;
+    let inputQuality = 'unknown';
+    let momentsFound = 0;
+    let clipsGenerated = 0;
 
-    const apiKey = this.config.get<string>('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
-    const model = this.config.get<string>('ANTHROPIC_MODEL') || 'claude-4.1';
-    const maxClips = 30;
-    const minClips = 10;
-    const url = video.sourceUrl;
+    try {
+      const video = await this.prisma.video.findUnique({ where: { id: videoId } });
+      if (!video) throw new Error(`Video ${videoId} not found`);
 
-    let moments: ViralMoment[] | null = null;
-    let usage: { inputTokens?: number; outputTokens?: number } | undefined;
-    let provider = 'anthropic';
-    let error: string | undefined;
-
-    if (apiKey && url) {
+      // Metadata Extraction
       try {
-        const moduleName: string = '@anthropic-ai/sdk';
-        const mod: any = await (Function('m','return import(m)') as (m: string) => Promise<any>)(moduleName);
-        const Anthropic: any = mod.default ?? mod;
-        const client = new Anthropic({ apiKey });
-
-        const prompt =
-          'Analyze the video and return 10–30 high-engagement short-form moments. ' +
-          'Output strict JSON only with key "clips": an array of objects with "start" (seconds), "end" (seconds), and "reason" (string). ' +
-          'Clips should be 15–60 seconds where possible and non-overlapping. ' +
-          'Use precise timestamps with seconds resolution. No markdown or extra text.';
-
-        const content = [
-          { type: 'text', text: prompt },
-          { type: 'media', source: { type: 'video', url } },
-        ];
-
-        const result: any = await client.messages.create({
-          model,
-          max_tokens: 1200,
-          temperature: 0,
-          messages: [{ role: 'user', content }],
+        const metadata: any = await new Promise((resolve, reject) => {
+          ffmpeg.ffprobe(video.sourceUrl, (err, data) => {
+            if (err) reject(err);
+            else resolve(data);
+          });
         });
+        durationSec = metadata.format?.duration ? Math.round(metadata.format.duration) : (video.duration || 0);
+        const videoStream = metadata.streams?.find((s: any) => s.codec_type === 'video');
+        inputQuality = videoStream?.height ? `${videoStream.height}p` : 'unknown';
+      } catch (err: any) {
+        this.logger.warn(`ffprobe metadata extraction failed: ${err.message}`);
+        durationSec = video.duration || 0;
+      }
 
-        let text = '';
-        if (Array.isArray(result?.content)) {
-          text = result.content
-            .map((c: any) => (typeof c?.text === 'string' ? c.text : ''))
-            .filter(Boolean)
-            .join('\n');
-        } else if (typeof result?.output_text === 'string') {
-          text = result.output_text;
-        }
+      const apiKey = this.config.get<string>('ANTHROPIC_API_KEY') || process.env.ANTHROPIC_API_KEY;
+      const model = this.config.get<string>('ANTHROPIC_MODEL') || 'claude-4.1';
+      const maxClips = 30;
+      const minClips = 10;
+      const url = video.sourceUrl;
 
-        const parsed = this.safeParseJson(text);
-        const clips: any[] = Array.isArray(parsed?.clips) ? parsed.clips : [];
-        moments = clips
-          .map((c) => ({
-            start: Number(c?.start),
-            end: Number(c?.end),
-            reason: String(c?.reason ?? ''),
-          }))
-          .filter((m) => Number.isFinite(m.start) && Number.isFinite(m.end) && m.end > m.start)
-          .slice(0, maxClips);
+      let moments: ViralMoment[] | null = null;
+      let usage: { inputTokens?: number; outputTokens?: number } | undefined;
+      let provider = 'anthropic';
+      let error: string | undefined;
 
-        if (!moments || moments.length < minClips) {
+      if (apiKey && url) {
+        try {
+          const moduleName: string = '@anthropic-ai/sdk';
+          const mod: any = await (Function('m','return import(m)') as (m: string) => Promise<any>)(moduleName);
+          const Anthropic: any = mod.default ?? mod;
+          const client = new Anthropic({ apiKey });
+
+          const prompt =
+            'Analyze the video and return 10–30 high-engagement short-form moments. ' +
+            'Output strict JSON only with key "clips": an array of objects with "start" (seconds), "end" (seconds), and "reason" (string). ' +
+            'Clips should be 15–60 seconds where possible and non-overlapping. ' +
+            'Use precise timestamps with seconds resolution. No markdown or extra text.';
+
+          const content = [
+            { type: 'text', text: prompt },
+            { type: 'media', source: { type: 'video', url } },
+          ];
+
+          const result: any = await client.messages.create({
+            model,
+            max_tokens: 1200,
+            temperature: 0,
+            messages: [{ role: 'user', content }],
+          });
+
+          let text = '';
+          if (Array.isArray(result?.content)) {
+            text = result.content
+              .map((c: any) => (typeof c?.text === 'string' ? c.text : ''))
+              .filter(Boolean)
+              .join('\n');
+          } else if (typeof result?.output_text === 'string') {
+            text = result.output_text;
+          }
+
+          const parsed = this.safeParseJson(text);
+          const clips: any[] = Array.isArray(parsed?.clips) ? parsed.clips : [];
+          moments = clips
+            .map((c) => ({
+              start: Number(c?.start),
+              end: Number(c?.end),
+              reason: String(c?.reason ?? ''),
+            }))
+            .filter((m) => Number.isFinite(m.start) && Number.isFinite(m.end) && m.end > m.start)
+            .slice(0, maxClips);
+
+          if (!moments || moments.length < minClips) {
+            moments = null;
+          }
+
+          usage = {
+            inputTokens: Number(result?.usage?.input_tokens) || undefined,
+            outputTokens: Number(result?.usage?.output_tokens) || undefined,
+          };
+        } catch (e: any) {
+          error = String(e?.message ?? e);
           moments = null;
         }
-
-        usage = {
-          inputTokens: Number(result?.usage?.input_tokens) || undefined,
-          outputTokens: Number(result?.usage?.output_tokens) || undefined,
-        };
-      } catch (e: any) {
-        error = String(e?.message ?? e);
-        moments = null;
       }
+
+      if (!moments) {
+        moments = this.fallbackFixedChunks(durationSec);
+        provider = 'fallback-fixed-chunks';
+      }
+
+      momentsFound = moments.length;
+      const normalized = this.normalizeMoments(moments, durationSec);
+      clipsGenerated = normalized.length;
+
+      const timeTakenMs = Date.now() - startTime;
+
+      await this.prisma.video.update({
+        where: { id: videoId },
+        data: {
+          processingStats: {
+            momentsFound,
+            inputQuality,
+            durationSec,
+            clipsGenerated,
+            timeTakenMs,
+            ...(error ? { errorDetails: error } : {}),
+          },
+        },
+      });
+
+      if (usage?.inputTokens || usage?.outputTokens) {
+        this.logger.log(
+          `ai_usage videoId=${videoId} provider=${provider} model=${model} input_tokens=${usage?.inputTokens ?? 0} output_tokens=${usage?.outputTokens ?? 0}`,
+        );
+      } else {
+        this.logger.log(`ai_usage videoId=${videoId} provider=${provider} model=${model}`);
+      }
+
+      return normalized;
+    } catch (e: any) {
+      const timeTakenMs = Date.now() - startTime;
+      const errorDetails = String(e?.message ?? e);
+
+      try {
+        await this.prisma.video.update({
+          where: { id: videoId },
+          data: {
+            processingStats: {
+              momentsFound,
+              inputQuality,
+              durationSec,
+              clipsGenerated,
+              timeTakenMs,
+              errorDetails,
+            },
+          },
+        });
+      } catch (updateError) {
+        this.logger.error(`Failed to update processingStats on error: ${updateError}`);
+      }
+      
+      throw e;
     }
-
-    if (!moments) {
-      moments = this.fallbackFixedChunks(video.duration ?? null);
-      provider = 'fallback-fixed-chunks';
-    }
-
-    const normalized = this.normalizeMoments(moments, video.duration ?? null);
-
-    await this.prisma.video.update({
-      where: { id: videoId },
-      data: {
-        processingStats: ({
-          viralMoments: normalized,
-          ai: { provider, model },
-          usage,
-          lastDetectionAt: new Date().toISOString(),
-          error,
-        } as any),
-      },
-    });
-
-    if (usage?.inputTokens || usage?.outputTokens) {
-      this.logger.log(
-        `ai_usage videoId=${videoId} provider=${provider} model=${model} input_tokens=${usage?.inputTokens ?? 0} output_tokens=${usage?.outputTokens ?? 0}`,
-      );
-    } else {
-      this.logger.log(`ai_usage videoId=${videoId} provider=${provider} model=${model}`);
-    }
-
-    return normalized;
   }
 
   private safeParseJson(text: string): any {

@@ -7,16 +7,19 @@ import {
   Query,
   NotFoundException,
   Req,
+  UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { ClipsService } from './clips.service';
-import type { ClipSortField, SortOrder } from './clips.service';
-import type { ClipGenerationJob } from './clip-generation.processor';
-import type { BulkUpdateClipsDto } from './dto/bulk-update-clips.dto';
+import { ClipsService } from './clips.service.js';
+import type { ClipSortField, SortOrder } from './clips.service.js';
+import type { ClipGenerationJob } from './clip-generation.processor.js';
+import type { BulkUpdateClipsDto } from './dto/bulk-update-clips.dto.js';
+import { LoginGuard } from '../auth/guards/login.guard.js';
 
+@UseGuards(LoginGuard)
 @Controller('clips')
 export class ClipsController {
-  constructor(private readonly clipsService: ClipsService) {}
+  constructor(private readonly clipsService: ClipsService) { }
 
   /**
    * POST /clips/generate
