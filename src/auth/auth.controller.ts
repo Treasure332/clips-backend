@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Req,
+  Query,
   UseGuards,
   ValidationPipe,
   BadRequestException,
@@ -11,6 +12,7 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
+import { MagicLinkRequestDto } from './dto/magic-link.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -43,5 +45,22 @@ export class AuthController {
       email: user.email ?? null,
     });
     return { user, tokens };
+  }
+
+  @Post('magic-link')
+  async requestMagicLink(
+    @Body(new ValidationPipe({ transform: true })) dto: MagicLinkRequestDto,
+  ) {
+    await this.authService.requestMagicLink(dto.email);
+    // Always return 200 to avoid email enumeration
+    return { message: 'If that email exists, a magic link has been sent.' };
+  }
+
+  @Get('verify-magic')
+  async verifyMagicLink(@Query('token') token: string) {
+    if (!token) {
+      throw new BadRequestException('Token is required');
+    }
+    return this.authService.verifyMagicLink(token);
   }
 }

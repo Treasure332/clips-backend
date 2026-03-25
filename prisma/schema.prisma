@@ -22,6 +22,7 @@ model User {
   subscriptions Subscription[]
   wallets       Wallet[]
   payouts       Payout[]
+  magicLinks    MagicLink[]
 
   @@unique([provider, providerId])
 }
@@ -132,4 +133,16 @@ model Subscription {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model MagicLink {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  tokenHash String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([tokenHash])
 }
