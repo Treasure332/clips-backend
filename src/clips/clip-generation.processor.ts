@@ -5,6 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Clip } from './clip.entity';
 import { calculateViralityScore } from './virality-score.util';
 import { cutClip } from './ffmpeg.util';
+import { generateCaption } from './caption.util';
 import { CloudinaryService } from './cloudinary.service';
 import { CLIP_GENERATION_QUEUE } from './clip-generation.queue';
 import {
@@ -29,6 +30,8 @@ export interface ClipGenerationJob {
   /** 0.0–1.0: where in the source video this clip starts */
   positionRatio: number;
   transcript?: string;
+  /** Video title — used to auto-generate the caption placeholder */
+  title?: string;
 }
 
 export interface ClipProcessingResult {
@@ -144,6 +147,7 @@ export class ClipGenerationProcessor extends WorkerHost {
           error: `Cloudinary upload failed: ${uploadResult.error}`,
           selected: false,
           postStatus: null,
+          caption: generateCaption(data.title, clipId, data.transcript),
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -171,6 +175,7 @@ export class ClipGenerationProcessor extends WorkerHost {
         status: 'success',
         selected: false,
         postStatus: null,
+        caption: generateCaption(data.title, clipId, data.transcript),
         createdAt: new Date(),
         updatedAt: new Date(),
       };
