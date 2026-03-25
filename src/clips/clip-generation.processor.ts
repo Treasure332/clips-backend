@@ -4,7 +4,7 @@ import { Job, UnrecoverableError } from 'bullmq';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Clip } from './clip.entity';
 import { calculateViralityScore } from './virality-score.util';
-import { cutClip } from './ffmpeg.util';
+import { cutClip, getVideoMetadata } from './ffmpeg.util';
 import { generateCaption } from './caption.util';
 import { CloudinaryService } from './cloudinary.service';
 import { CLIP_GENERATION_QUEUE } from './clip-generation.queue';
@@ -104,8 +104,11 @@ export class ClipGenerationProcessor extends WorkerHost {
       });
       await job.updateProgress(50);
 
+      const metadata = await getVideoMetadata(data.outputPath);
+      const actualDuration = Math.round(metadata.duration);
+
       const viralityScore = data.existingViralityScore ?? calculateViralityScore({
-        durationSeconds,
+        durationSeconds: actualDuration,
         positionRatio: data.positionRatio,
         transcript: data.transcript,
       });
@@ -141,6 +144,7 @@ export class ClipGenerationProcessor extends WorkerHost {
           userId: '', // populated by ClipsService after dequeue
           startTime: data.startTime,
           endTime: data.endTime,
+          duration: actualDuration,
           positionRatio: data.positionRatio,
           transcript: data.transcript,
           viralityScore,
@@ -171,6 +175,7 @@ export class ClipGenerationProcessor extends WorkerHost {
         userId: '', // populated by ClipsService after dequeue
         startTime: data.startTime,
         endTime: data.endTime,
+        duration: actualDuration,
         positionRatio: data.positionRatio,
         transcript: data.transcript,
         viralityScore,
@@ -313,6 +318,7 @@ export class ClipGenerationProcessor extends WorkerHost {
         clipUrl: result.clipUrl,
         thumbnail: result.thumbnail,
         status: result.status,
+        duration: result.duration,
         error: result.error,
         localFilePath: result.localFilePath,
       });

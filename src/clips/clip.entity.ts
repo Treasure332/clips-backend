@@ -9,6 +9,8 @@ export interface Clip {
   startTime: number;
   /** End time of the clip in seconds */
   endTime: number;
+  /** Actual duration of the clip in seconds (probed after cut) */
+  duration: number;
   /** 0.0–1.0 — where in the source video this clip starts (0 = beginning, 1 = end) */
   positionRatio: number;
   /** Transcript text for this clip segment */
