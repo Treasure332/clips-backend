@@ -18,4 +18,12 @@ export class BulkUpdateClipsDto {
    */
   @IsOptional()
   postStatus?: unknown;
+
+  /**
+   * User-editable caption. Auto-generated on clip creation from title + emojis.
+   * Pass a new value here to override it.
+   */
+  @IsOptional()
+  @IsString()
+  caption?: string;
 }

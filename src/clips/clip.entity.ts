@@ -33,6 +33,11 @@ export interface Clip {
   selected: boolean;
   /** Freeform posting status — e.g. 'pending' | 'posted' | 'failed' or platform-specific JSON */
   postStatus: PostStatus | null;
+  /**
+   * Auto-generated caption placeholder derived from the clip title/transcript + emojis.
+   * Editable by the user before posting.
+   */
+  caption?: string;
   createdAt: Date;
   updatedAt: Date;
 }

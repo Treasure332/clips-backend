@@ -134,11 +134,12 @@ export class ClipsService {
     }
 
     // ── Simulated transaction ─────────────────────────────────────────────────
-    const patch: Partial<Pick<Clip, 'selected' | 'postStatus' | 'updatedAt'>> = {
+    const patch: Partial<Pick<Clip, 'selected' | 'postStatus' | 'caption' | 'updatedAt'>> = {
       updatedAt: new Date(),
     };
     if (dto.selected !== undefined) patch.selected = dto.selected;
     if (dto.postStatus !== undefined) patch.postStatus = dto.postStatus as PostStatus;
+    if (dto.caption !== undefined) patch.caption = dto.caption;
 
     for (const clip of validClips) {
       Object.assign(clip, patch);
@@ -214,11 +215,12 @@ export class ClipsService {
     }
 
     // ── Simulated transaction — atomic in-memory mutation ────────────────────
-    const patch: Partial<Pick<Clip, 'selected' | 'postStatus' | 'updatedAt'>> = {
+    const patch: Partial<Pick<Clip, 'selected' | 'postStatus' | 'caption' | 'updatedAt'>> = {
       updatedAt: new Date(),
     };
     if (dto.selected !== undefined) patch.selected = dto.selected;
     if (dto.postStatus !== undefined) patch.postStatus = dto.postStatus as PostStatus;
+    if (dto.caption !== undefined) patch.caption = dto.caption;
 
     for (const clip of validClips) {
       Object.assign(clip, patch);
