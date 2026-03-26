@@ -19,8 +19,9 @@ export class CreateVideoDto {
   @IsString()
   sourceType?: string;
 
+  @IsOptional()
   @IsString()
-  sourceUrl: string;
+  sourceUrl?: string;
 
   @IsOptional()
   @IsString()

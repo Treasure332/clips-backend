@@ -4,6 +4,16 @@ import { CreateVideoDto } from './create-video.dto';
 
 describe('CreateVideoDto', () => {
   describe('targetPlatforms validation and transformation', () => {
+    it('should pass validation with file upload (no sourceUrl)', async () => {
+      const dto = plainToInstance(CreateVideoDto, {
+        userId: 1,
+        targetPlatforms: ['tiktok'],
+      });
+
+      const errors = await validate(dto);
+      expect(errors.length).toBe(0);
+    });
+
     it('should pass validation with valid platforms', async () => {
       const dto = plainToInstance(CreateVideoDto, {
         userId: 1,
