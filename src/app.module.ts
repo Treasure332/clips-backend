@@ -9,7 +9,14 @@ import { VideosModule } from './videos/videos.module';
 import { AuthModule } from './auth/auth.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { JobsModule } from './jobs/jobs.module';
+
 import { PayoutsModule } from './payouts/payouts.module';
+
+import { WalletModule } from './wallet/wallet.module';
+import { MintModule } from './mint/mint.module';
+import { PayoutModule } from './payout/payout.module';
+import { StellarModule } from './stellar/stellar.module';
+
 
 @Module({
   imports: [
@@ -26,6 +33,10 @@ import { PayoutsModule } from './payouts/payouts.module';
     ClipsModule,
     VideosModule,
     JobsModule,
+    WalletModule,
+    MintModule,
+    PayoutModule,
+    StellarModule,
   ],
   controllers: [AppController],
   providers: [AppService],
