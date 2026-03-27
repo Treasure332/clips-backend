@@ -184,14 +184,13 @@ export class AuthService {
       where: { tokenHash },
     });
 
-    if (!stored || stored.revokedAt) {
-      // Idempotent — already revoked or doesn't exist
+    if (!stored) {
+      // Idempotent — already deleted or doesn't exist
       return;
     }
 
-    await this.prisma.refreshToken.update({
+    await this.prisma.refreshToken.delete({
       where: { id: stored.id },
-      data: { revokedAt: new Date() },
     });
   }
 
@@ -421,9 +420,8 @@ export class AuthService {
         where: { id: resetToken.id },
         data: { usedAt: new Date() },
       }),
-      this.prisma.refreshToken.updateMany({
-        where: { userId: resetToken.userId, revokedAt: null },
-        data: { revokedAt: new Date() },
+      this.prisma.refreshToken.deleteMany({
+        where: { userId: resetToken.userId },
       }),
     ]);
   }
